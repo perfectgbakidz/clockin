@@ -1,0 +1,5 @@
+{
+  "name": "Copy of Employee Attendance System",
+  "description": "A comprehensive, web-based system for employees to clock in/out and for administrators to manage attendance, employees, and generate reports. The application features role-based access for Employees, HR, and Administrators.",
+  "requestFramePermissions": []
+}
