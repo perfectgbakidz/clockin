@@ -1,44 +1,8 @@
+
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { apiRequest } from '../../contexts/AuthContext';
-import { KeyRound, CheckCircle, XCircle, Trash2 } from 'lucide-react';
-
-// Helper to decode Base64URL string to ArrayBuffer
-const decodeBase64Url = (base64url: string): ArrayBuffer => {
-    const str = atob(base64url.replace(/-/g, '+').replace(/_/g, '/'));
-    const buf = new Uint8Array(str.length);
-    for (let i = 0; i < str.length; i++) {
-        buf[i] = str.charCodeAt(i);
-    }
-    return buf.buffer;
-};
-
-// Helper to convert ArrayBuffer to Base64URL string
-const arrayBufferToBase64Url = (buffer: ArrayBuffer): string => {
-    const bytes = new Uint8Array(buffer);
-    let binary = '';
-    for (let i = 0; i < bytes.byteLength; i++) {
-        binary += String.fromCharCode(bytes[i]);
-    }
-    return window.btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-};
-
-// Helper to prepare WebAuthn credential for JSON serialization
-const prepareCredentialForJson = (credential: PublicKeyCredential) => {
-    const { id, rawId, type, response } = credential;
-    if (response instanceof AuthenticatorAttestationResponse) {
-        return {
-            id,
-            rawId: arrayBufferToBase64Url(rawId),
-            type,
-            response: {
-                clientDataJSON: arrayBufferToBase64Url(response.clientDataJSON),
-                attestationObject: arrayBufferToBase64Url(response.attestationObject),
-            },
-        };
-    }
-    return null;
-};
+import { KeyRound, CheckCircle, XCircle } from 'lucide-react';
 
 const ProfilePage: React.FC = () => {
     const { user } = useAuth();
@@ -50,16 +14,16 @@ const ProfilePage: React.FC = () => {
     const [isRegistering, setIsRegistering] = useState(false);
     const [isDeviceRegistered, setIsDeviceRegistered] = useState(false);
 
+    const checkRegistrationStatus = async () => {
+        try {
+            const { isRegistered } = await apiRequest<{ isRegistered: boolean }>('/webauthn/registration-status');
+            setIsDeviceRegistered(isRegistered);
+        } catch (error) {
+            console.error('Failed to fetch registration status', error);
+        }
+    };
+
     useEffect(() => {
-        const checkRegistrationStatus = async () => {
-            try {
-                // This endpoint should check if any credentials exist for the current user
-                const { isRegistered } = await apiRequest<{ isRegistered: boolean }>('/webauthn/registration-status');
-                setIsDeviceRegistered(isRegistered);
-            } catch (error) {
-                console.error('Failed to fetch registration status', error);
-            }
-        };
         if (user) {
             checkRegistrationStatus();
         }
@@ -96,54 +60,35 @@ const ProfilePage: React.FC = () => {
         setRegistrationStatus({ text: 'Please follow the prompt from your browser to register your device...', type: 'info' });
 
         try {
-            if (!navigator.credentials || !navigator.credentials.create) {
-                throw new Error('WebAuthn is not supported on this browser.');
-            }
-
-            // 1. Get options from server
-            const creationOptions = await apiRequest<any>(`/webauthn/register/begin?userId=${user.id}`, { method: 'GET' });
-
-            // a. Validate the backend response
-            if (!creationOptions || !creationOptions.publicKey) {
-                throw new Error('Invalid registration options received from server.');
-            }
-
-            // b. Safely decode challenge and user.id
-            creationOptions.publicKey.challenge = decodeBase64Url(creationOptions.publicKey.challenge);
-            creationOptions.publicKey.user.id = decodeBase64Url(creationOptions.publicKey.user.id);
+            // 1. Get mock options from server
+            await apiRequest<any>(`/webauthn/register/begin?userId=${user.id}`, { method: 'GET' });
             
-            // c. Call navigator.credentials.create properly
-            const credential = await navigator.credentials.create({ publicKey: creationOptions.publicKey });
+            // 2. SIMULATE browser interaction
+            setRegistrationStatus({ text: 'Simulating biometric scan...', type: 'info' });
+            await new Promise(res => setTimeout(res, 1500));
             
-            if (!(credential instanceof PublicKeyCredential)) {
-                throw new Error('Failed to create a valid public key credential.');
-            }
+            // 3. SIMULATE a successful credential creation
+            const mockCredential = {
+                id: `sim-cred-id-${user.id}-${Date.now()}`,
+                rawId: user.id, // simplified for mock
+                type: 'public-key',
+                response: {
+                    clientDataJSON: 'mockClientData',
+                    attestationObject: 'mockAttestationObject',
+                },
+            };
 
-            // d. Prepare the credential for server
-            const jsonCredential = prepareCredentialForJson(credential);
-            if (!jsonCredential) {
-                throw new Error('Failed to prepare credential for server.');
-            }
-
-            // e. Send to backend
-            const result = await apiRequest<{ verified: boolean }>('/webauthn/register/finish', { method: 'POST', body: jsonCredential });
+            // 4. Send mock credential to backend for "verification"
+            const result = await apiRequest<{ verified: boolean }>('/webauthn/register/finish', { method: 'POST', body: mockCredential });
 
             if(result.verified) {
-                setIsDeviceRegistered(true);
+                await checkRegistrationStatus(); // Re-check status
                 setRegistrationStatus({ text: 'Device registered successfully!', type: 'success' });
             } else {
                 throw new Error('Server verification failed.');
             }
         } catch (error) {
-            // f. Handle errors clearly
-            let errorMessage = 'An unknown error occurred.';
-            if (error instanceof Error) {
-                if (error.name === 'NotAllowedError') {
-                    errorMessage = 'Registration was cancelled.';
-                } else {
-                    errorMessage = error.message;
-                }
-            }
+            let errorMessage = (error instanceof Error) ? error.message : 'An unknown error occurred.';
             console.error('Registration failed:', error);
             setRegistrationStatus({ text: `Registration failed: ${errorMessage}`, type: 'error' });
         } finally {
@@ -186,7 +131,7 @@ const ProfilePage: React.FC = () => {
                         {registrationStatus.text}
                     </div>
                 )}
-                {isDeviceRegistered && (
+                {isDeviceRegistered && !registrationStatus && (
                      <div className="flex items-center p-3 rounded-md bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 mb-4">
                         <CheckCircle className="w-5 h-5 mr-2" />
                         <span className="font-medium">You have at least one biometric device registered.</span>

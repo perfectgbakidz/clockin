@@ -1,38 +1,9 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { Clock, CheckCircle, LogIn, LogOut, MapPin, XCircle, Info } from 'lucide-react';
 import { apiRequest } from '../../contexts/AuthContext';
 import { AttendanceRecord } from '../../types';
-
-// Helper to convert ArrayBuffer to Base64URL string
-const arrayBufferToBase64Url = (buffer: ArrayBuffer): string => {
-    const bytes = new Uint8Array(buffer);
-    let binary = '';
-    for (let i = 0; i < bytes.byteLength; i++) {
-        binary += String.fromCharCode(bytes[i]);
-    }
-    return window.btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-};
-
-// Helper to prepare WebAuthn credential for JSON serialization
-const prepareCredentialForJson = (credential: PublicKeyCredential) => {
-    const { id, rawId, type, response } = credential;
-    if (response instanceof AuthenticatorAssertionResponse) {
-        return {
-            id,
-            rawId: arrayBufferToBase64Url(rawId),
-            type,
-            response: {
-                clientDataJSON: arrayBufferToBase64Url(response.clientDataJSON),
-                authenticatorData: arrayBufferToBase64Url(response.authenticatorData),
-                signature: arrayBufferToBase64Url(response.signature),
-                userHandle: response.userHandle ? arrayBufferToBase64Url(response.userHandle) : null,
-            },
-        };
-    }
-    return null;
-};
-
 
 const EmployeeDashboard: React.FC = () => {
   const { user } = useAuth();
@@ -44,10 +15,8 @@ const EmployeeDashboard: React.FC = () => {
   const [verifyingAction, setVerifyingAction] = useState<'clockIn' | 'clockOut' | null>(null);
   const isVerifyingRef = useRef(false);
   
-  // Fetch today's attendance record and location
-  useEffect(() => {
-    const fetchTodaysAttendance = async () => {
-      if (!user?.id) return; // Guard against missing user or user.id
+  const fetchTodaysAttendance = async () => {
+      if (!user?.id) return;
       try {
         const todayStr = new Date().toISOString().split('T')[0];
         const records = await apiRequest<AttendanceRecord[]>(`/attendance/history?user_id=${user.id}`);
@@ -56,16 +25,19 @@ const EmployeeDashboard: React.FC = () => {
         if (todayRecord) {
             if (todayRecord.clockIn) setClockInTime(new Date(`${todayRecord.date}T${todayRecord.clockIn}`));
             if (todayRecord.clockOut) setClockOutTime(new Date(`${todayRecord.date}T${todayRecord.clockOut}`));
+        } else {
+            setClockInTime(null);
+            setClockOutTime(null);
         }
       } catch (err: any) {
           console.error("Failed to fetch today's attendance", err);
-          const errorMessage = (err.message || '').toLowerCase().includes('user_id')
-            ? 'User ID missing. Please log in again.'
-            : "Could not fetch today's attendance status.";
+          const errorMessage = "Could not fetch today's attendance status.";
           setStatus({ message: errorMessage, type: 'error' });
       }
     };
-    
+
+  // Fetch today's attendance record and location
+  useEffect(() => {
     fetchTodaysAttendance();
 
     if (navigator.geolocation) {
@@ -97,7 +69,7 @@ const EmployeeDashboard: React.FC = () => {
       setStatus({ message: 'Error: Location not available. Cannot clock in/out.', type: 'error' });
       return;
     }
-     if (!user?.id) { // Guard against missing user or user.id
+     if (!user?.id) {
       setStatus({ message: 'Error: User not found. Please log in again.', type: 'error' });
       return;
     }
@@ -117,10 +89,12 @@ const EmployeeDashboard: React.FC = () => {
       
       if (event.data.success && event.data.credential) {
          try {
-            const jsonCredential = prepareCredentialForJson(event.data.credential);
+            // In simulation mode, we don't need to process the credential.
+            // We just proceed with the API call.
+            const jsonCredential = event.data.credential;
             const endpoint = action === 'clockIn' ? '/attendance/clock-in' : '/attendance/clock-out';
             
-            const response = await apiRequest<{ message: string, clockInTime?: string, clockOutTime?: string }>(endpoint, {
+            const response = await apiRequest<{ message: string }>(endpoint, {
                 method: 'POST',
                 body: { 
                     webAuthnResponse: jsonCredential,
@@ -128,20 +102,12 @@ const EmployeeDashboard: React.FC = () => {
                 }
             });
 
-            const now = new Date();
-            if (action === 'clockIn') {
-                setClockInTime(now);
-                setClockOutTime(null);
-            } else {
-                setClockOutTime(now);
-            }
             setStatus({ message: response.message, type: 'success' });
+            // Re-fetch status to update clock-in/out times from the mock store
+            await fetchTodaysAttendance();
 
         } catch (apiError: any) {
-            const errorMessage = (apiError.message || '').toLowerCase().includes('user_id')
-              ? 'User ID missing. Please log in again.'
-              : `Clock-in/out failed: ${apiError.message}`;
-            setStatus({ message: errorMessage, type: 'error' });
+            setStatus({ message: `Clock-in/out failed: ${apiError.message}`, type: 'error' });
         }
       } else {
         setStatus({ message: event.data.error || 'Verification failed. Please try again.', type: 'error' });
@@ -215,8 +181,8 @@ const EmployeeDashboard: React.FC = () => {
         <div className="p-6 bg-white dark:bg-gray-800 rounded-lg shadow-md">
           <h2 className="text-xl font-semibold mb-4">Today's Status</h2>
           <div className="space-y-3">
-            <p><strong>Last Clock-In:</strong> {clockInTime ? clockInTime.toLocaleTimeString() : 'Not clocked in today'}</p>
-            <p><strong>Last Clock-Out:</strong> {clockOutTime ? clockOutTime.toLocaleTimeString() : 'Not clocked out yet'}</p>
+            <p><strong>Clock-In:</strong> {clockInTime ? clockInTime.toLocaleTimeString() : 'Not clocked in today'}</p>
+            <p><strong>Clock-Out:</strong> {clockOutTime ? clockOutTime.toLocaleTimeString() : 'Not clocked out yet'}</p>
           </div>
         </div>
 

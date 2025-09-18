@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState } from 'react';
 import { Users, UserCheck, UserX, AlertTriangle } from 'lucide-react';
 import { apiRequest } from '../../contexts/AuthContext';
@@ -35,12 +36,10 @@ const AdminDashboard: React.FC = () => {
       const today = new Date().toISOString().split('T')[0];
 
       // Fetch employees and attendance logs
-      const [users, attendanceResponse] = await Promise.all([
+      const [users, attendanceLogs] = await Promise.all([
         apiRequest<User[]>('/admin/employees'),
-        apiRequest<{ meta: any; data: AttendanceRecord[] }>(`/admin/attendance-logs?date=${today}`),
+        apiRequest<AttendanceRecord[]>(`/admin/attendance-logs?date=${today}`),
       ]);
-
-      const attendanceLogs = attendanceResponse.data; // <-- extract array
 
       // Total active employees with 'employee' role
       const activeEmployeeUsers = users.filter(u => u.status === 'Active' && u.role === Role.EMPLOYEE);
@@ -52,7 +51,7 @@ const AdminDashboard: React.FC = () => {
 
       // Late arrivals (isLate flag or clockIn after 09:00:00)
       const lateArrivals = attendanceLogs.filter(log => {
-        const isLateByTime = log.clockIn && (log.clockIn.includes('T') ? log.clockIn.split('T')[1] : log.clockIn) > '09:00:00';
+        const isLateByTime = log.clockIn && (log.clockIn.split('T')[1] || log.clockIn) > '09:00:00';
         return log.isLate === true || isLateByTime;
       }).length;
 

@@ -1,8 +1,8 @@
+
 import React, { useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts';
-import { apiRequest, useAuth, API_BASE_URL } from '../../contexts/AuthContext';
+import { apiRequest } from '../../contexts/AuthContext';
 
-// Fix: Define interfaces for the report data shapes.
 interface AbsenteeismData {
     name: string;
     Present: number;
@@ -15,17 +15,14 @@ interface WorkingHoursData {
 }
 
 const ReportsPage: React.FC = () => {
-    // Fix: Use the new interfaces to type the component's state.
     const [absenteeismData, setAbsenteeismData] = useState<AbsenteeismData[]>([]);
     const [workingHoursData, setWorkingHoursData] = useState<WorkingHoursData[]>([]);
     const [loading, setLoading] = useState(true);
-    const { token } = useAuth();
 
     useEffect(() => {
         const fetchReportData = async () => {
             setLoading(true);
             try {
-                // Fix: Provide generic types to apiRequest to ensure typed responses.
                 const [absenteeism, workingHours] = await Promise.all([
                     apiRequest<AbsenteeismData[]>('/reports/absenteeism-trends'),
                     apiRequest<WorkingHoursData[]>('/reports/working-hours')
@@ -34,7 +31,6 @@ const ReportsPage: React.FC = () => {
                 setWorkingHoursData(workingHours);
             } catch (error) {
                 console.error("Failed to fetch report data", error);
-                // Optionally set an error state to display in the UI
             } finally {
                 setLoading(false);
             }
@@ -42,34 +38,22 @@ const ReportsPage: React.FC = () => {
         fetchReportData();
     }, []);
 
-    const handleDownload = async (reportType: 'monthly' | 'weekly') => {
-        if (!token) {
-            alert('Authentication error. Please log in again.');
-            return;
-        }
-        try {
-            // apiRequest is for JSON, so use fetch directly for blobs
-            const response = await fetch(`${API_BASE_URL}/reports/download?type=${reportType}`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-
-            if (!response.ok) {
-                throw new Error(`Download failed with status: ${response.status}`);
-            }
-
-            const blob = await response.blob();
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `${reportType}_report_${new Date().toISOString().split('T')[0]}.csv`;
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-            window.URL.revokeObjectURL(url);
-        } catch (error) {
-            console.error('Failed to download report', error);
-            alert('Failed to download report. See console for details.');
-        }
+    const handleDownload = (reportType: 'monthly' | 'weekly') => {
+        const reportTypeStr = reportType.charAt(0).toUpperCase() + reportType.slice(1);
+        let csvContent = `data:text/csv;charset=utf-8,${reportTypeStr} Report (Simulated)\nDate,Employee,Status,Hours\n`;
+        
+        // Add some mock data for the CSV file
+        csvContent += "2023-10-27,Bob Employee,Present,8.17\n";
+        csvContent += "2023-10-27,David Developer,Present,7.98\n";
+        csvContent += "2023-10-26,Alice Admin,Absent,0\n";
+        
+        const encodedUri = encodeURI(csvContent);
+        const a = document.createElement('a');
+        a.href = encodedUri;
+        a.download = `${reportType}_report_${new Date().toISOString().split('T')[0]}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
     };
 
     return (
