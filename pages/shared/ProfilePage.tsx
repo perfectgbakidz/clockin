@@ -93,7 +93,12 @@ const ProfilePage: React.FC = () => {
             // 1. Get options from server
             const creationOptions = await apiRequest<CredentialCreationOptions>(`/webauthn/register/begin?userId=${user.id}`, { method: 'GET' });
 
-            // Decode challenge and user.id from base64url to ArrayBuffer
+            // FIX: Validate the response from the backend before using it to prevent crashes.
+            if (!creationOptions || !creationOptions.publicKey || !creationOptions.publicKey.challenge || !creationOptions.publicKey.user?.id) {
+                throw new Error('Invalid registration options received from server.');
+            }
+
+            // FIX: Decode challenge and user.id from Base64URL to ArrayBuffer as required by the WebAuthn API.
             creationOptions.publicKey.challenge = Uint8Array.from(atob(String(creationOptions.publicKey.challenge).replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
             creationOptions.publicKey.user.id = Uint8Array.from(atob(String(creationOptions.publicKey.user.id).replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
             
@@ -103,6 +108,12 @@ const ProfilePage: React.FC = () => {
             if (credential instanceof PublicKeyCredential) {
                 // 3. Send credential to server to finish registration
                 const jsonCredential = prepareCredentialForJson(credential);
+
+                // FIX: Add a check to ensure the credential was prepared correctly before sending.
+                if (!jsonCredential) {
+                    throw new Error('Failed to prepare credential for server.');
+                }
+
                 const result = await apiRequest<{ verified: boolean }>('/webauthn/register/finish', { method: 'POST', body: jsonCredential });
 
                 if(result.verified) {
