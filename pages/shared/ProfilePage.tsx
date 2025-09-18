@@ -94,7 +94,7 @@ const ProfilePage: React.FC = () => {
         }
 
         // 1. Get options from server
-        const creationOptions = await apiRequest<CredentialCreationOptions>('/webauthn/register/begin', { method: 'POST' }); // Use POST for CSRF protection
+        const creationOptions = await apiRequest<CredentialCreationOptions>('/webauthn/register/begin', { method: 'GET' });
 
         // Decode challenge and user.id from base64url to ArrayBuffer
         creationOptions.publicKey.challenge = Uint8Array.from(atob(String(creationOptions.publicKey.challenge).replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
