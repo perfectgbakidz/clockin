@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { User as UserIcon, LogOut, ChevronDown } from 'lucide-react';
@@ -33,7 +32,7 @@ const Header: React.FC<HeaderProps> = ({ children }) => {
     <header className="flex items-center justify-between p-4 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
       <div className="flex items-center">
         {children}
-        <h1 className="text-xl font-semibold hidden md:block ml-4">Attendance System</h1>
+        <h1 className="text-xl font-semibold hidden md:block ml-4">Pardee Foods Attendance</h1>
       </div>
 
       <div className="relative" ref={dropdownRef}>

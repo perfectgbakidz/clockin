@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -64,7 +63,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
       <div className={`fixed inset-0 z-20 bg-black bg-opacity-50 transition-opacity md:hidden ${isOpen ? 'block' : 'hidden'}`} onClick={() => setIsOpen(false)}></div>
       <aside className={`fixed md:relative inset-y-0 left-0 z-30 flex-shrink-0 w-64 px-4 py-4 bg-white dark:bg-gray-800 border-r dark:border-gray-700 transform ${isOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 transition-transform duration-300 ease-in-out`}>
         <div className="flex items-center justify-between mb-6">
-            <a href="#" className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">ClockIn</a>
+            <a href="#" className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">Pardee Foods</a>
             <button onClick={() => setIsOpen(false)} className="md:hidden p-1 text-gray-500 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700">
              <X size={24} />
             </button>

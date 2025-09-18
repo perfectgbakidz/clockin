@@ -63,7 +63,7 @@ const ProfilePage: React.FC = () => {
             publicKey: {
                 challenge,
                 rp: {
-                    name: 'ClockIn System',
+                    name: 'Pardee Foods',
                     id: window.location.hostname,
                 },
                 user: {
