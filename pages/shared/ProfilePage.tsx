@@ -3,6 +3,16 @@ import { useAuth } from '../../contexts/AuthContext';
 import { apiRequest } from '../../contexts/AuthContext';
 import { KeyRound, CheckCircle, XCircle, Trash2 } from 'lucide-react';
 
+// Helper to decode Base64URL string to ArrayBuffer
+const decodeBase64Url = (base64url: string): ArrayBuffer => {
+    const str = atob(base64url.replace(/-/g, '+').replace(/_/g, '/'));
+    const buf = new Uint8Array(str.length);
+    for (let i = 0; i < str.length; i++) {
+        buf[i] = str.charCodeAt(i);
+    }
+    return buf.buffer;
+};
+
 // Helper to convert ArrayBuffer to Base64URL string
 const arrayBufferToBase64Url = (buffer: ArrayBuffer): string => {
     const bytes = new Uint8Array(buffer);
@@ -91,41 +101,41 @@ const ProfilePage: React.FC = () => {
             }
 
             // 1. Get options from server
-            const creationOptions = await apiRequest<CredentialCreationOptions>(`/webauthn/register/begin?userId=${user.id}`, { method: 'GET' });
+            const creationOptions = await apiRequest<any>(`/webauthn/register/begin?userId=${user.id}`, { method: 'GET' });
 
-            // FIX: Validate the response from the backend before using it to prevent crashes.
-            if (!creationOptions || !creationOptions.publicKey || !creationOptions.publicKey.challenge || !creationOptions.publicKey.user?.id) {
+            // a. Validate the backend response
+            if (!creationOptions || !creationOptions.publicKey) {
                 throw new Error('Invalid registration options received from server.');
             }
 
-            // FIX: Decode challenge and user.id from Base64URL to ArrayBuffer as required by the WebAuthn API.
-            creationOptions.publicKey.challenge = Uint8Array.from(atob(String(creationOptions.publicKey.challenge).replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
-            creationOptions.publicKey.user.id = Uint8Array.from(atob(String(creationOptions.publicKey.user.id).replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+            // b. Safely decode challenge and user.id
+            creationOptions.publicKey.challenge = decodeBase64Url(creationOptions.publicKey.challenge);
+            creationOptions.publicKey.user.id = decodeBase64Url(creationOptions.publicKey.user.id);
             
-            // 2. Create credential
-            const credential = await navigator.credentials.create(creationOptions);
-
-            if (credential instanceof PublicKeyCredential) {
-                // 3. Send credential to server to finish registration
-                const jsonCredential = prepareCredentialForJson(credential);
-
-                // FIX: Add a check to ensure the credential was prepared correctly before sending.
-                if (!jsonCredential) {
-                    throw new Error('Failed to prepare credential for server.');
-                }
-
-                const result = await apiRequest<{ verified: boolean }>('/webauthn/register/finish', { method: 'POST', body: jsonCredential });
-
-                if(result.verified) {
-                    setIsDeviceRegistered(true);
-                    setRegistrationStatus({ text: 'Device registered successfully!', type: 'success' });
-                } else {
-                    throw new Error('Server verification failed.');
-                }
-            } else {
+            // c. Call navigator.credentials.create properly
+            const credential = await navigator.credentials.create({ publicKey: creationOptions.publicKey });
+            
+            if (!(credential instanceof PublicKeyCredential)) {
                 throw new Error('Failed to create a valid public key credential.');
             }
+
+            // d. Prepare the credential for server
+            const jsonCredential = prepareCredentialForJson(credential);
+            if (!jsonCredential) {
+                throw new Error('Failed to prepare credential for server.');
+            }
+
+            // e. Send to backend
+            const result = await apiRequest<{ verified: boolean }>('/webauthn/register/finish', { method: 'POST', body: jsonCredential });
+
+            if(result.verified) {
+                setIsDeviceRegistered(true);
+                setRegistrationStatus({ text: 'Device registered successfully!', type: 'success' });
+            } else {
+                throw new Error('Server verification failed.');
+            }
         } catch (error) {
+            // f. Handle errors clearly
             let errorMessage = 'An unknown error occurred.';
             if (error instanceof Error) {
                 if (error.name === 'NotAllowedError') {
