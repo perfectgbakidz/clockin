@@ -80,12 +80,19 @@ const ProfilePage: React.FC = () => {
             },
         });
 
-        if (credential) {
+        if (credential instanceof PublicKeyCredential) {
             // In a real app, send credential to server. Here, we'll use localStorage.
             const registrationKey = `biometric_registered_${user.id}`;
+            const credentialIdKey = `biometric_credential_id_${user.id}`;
+            
+            // The `credential.id` is a Base64URL encoded string, perfect for storage.
+            localStorage.setItem(credentialIdKey, credential.id);
             localStorage.setItem(registrationKey, 'true');
+
             setIsDeviceRegistered(true);
             setRegistrationStatus({ text: 'Device registered successfully!', type: 'success' });
+        } else {
+             throw new Error('Failed to create a valid public key credential.');
         }
     } catch (error) {
         let errorMessage = 'An unknown error occurred.';
@@ -106,7 +113,9 @@ const ProfilePage: React.FC = () => {
   const handleRemoveRegistration = () => {
       if (user && window.confirm('Are you sure you want to remove biometric registration for this device?')) {
           const registrationKey = `biometric_registered_${user.id}`;
+          const credentialIdKey = `biometric_credential_id_${user.id}`;
           localStorage.removeItem(registrationKey);
+          localStorage.removeItem(credentialIdKey);
           setIsDeviceRegistered(false);
           setRegistrationStatus({ text: 'Biometric registration removed.', type: 'info' });
       }

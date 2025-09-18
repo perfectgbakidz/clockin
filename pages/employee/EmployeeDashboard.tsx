@@ -37,12 +37,16 @@ const EmployeeDashboard: React.FC = () => {
       setStatus({ message: 'Error: Location not available.', type: 'error' });
       return;
     }
+     if (!user) {
+      setStatus({ message: 'Error: User not found.', type: 'error' });
+      return;
+    }
 
     setVerifyingAction(action);
     isVerifyingRef.current = true;
     setStatus({ message: 'Waiting for biometric verification...', type: 'info' });
 
-    const authPopup = window.open('/#/auth-popup', 'auth-popup', 'width=400,height=400,popup=true');
+    const authPopup = window.open(`/#/auth-popup?userId=${user.id}`, 'auth-popup', 'width=400,height=400,popup=true');
 
     const handleMessage = (event: MessageEvent) => {
       if (event.origin !== window.location.origin || event.data?.type !== 'webauthn-result') {

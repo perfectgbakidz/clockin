@@ -1,6 +1,16 @@
-
 import React, { useEffect, useState } from 'react';
 import { Fingerprint, XCircle } from 'lucide-react';
+
+const base64UrlToArrayBuffer = (base64Url: string): ArrayBuffer => {
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const binaryString = window.atob(base64);
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes.buffer;
+};
 
 const AuthPopupPage: React.FC = () => {
   const [status, setStatus] = useState<{ message: string, type: 'info' | 'error' }>({
@@ -20,12 +30,32 @@ const AuthPopupPage: React.FC = () => {
       
       let credential;
       try {
+        const urlParams = new URLSearchParams(window.location.hash.split('?')[1] || '');
+        const userId = urlParams.get('userId');
+
+        if (!userId) {
+          throw new Error('User ID not provided for verification.');
+        }
+
+        const credentialIdKey = `biometric_credential_id_${userId}`;
+        const storedCredentialId = localStorage.getItem(credentialIdKey);
+
+        if (!storedCredentialId) {
+          throw new Error('No passkey has been registered for this user on this device.');
+        }
+
+        const credentialIdBuffer = base64UrlToArrayBuffer(storedCredentialId);
+
         const challenge = new Uint8Array(32);
         window.crypto.getRandomValues(challenge);
 
         credential = await navigator.credentials.get({
           publicKey: {
             challenge,
+            allowCredentials: [{
+              type: 'public-key',
+              id: credentialIdBuffer,
+            }],
             timeout: 60000,
             userVerification: 'required', 
           },
@@ -48,7 +78,7 @@ const AuthPopupPage: React.FC = () => {
           } else if (error.name === 'SecurityError') {
              errorMessage = 'Biometric verification is not allowed on this domain (requires HTTPS).';
           } else {
-            errorMessage = 'No biometric credentials found or an error occurred.';
+            errorMessage = error.message;
           }
         }
         console.error('Biometric verification failed:', error);
