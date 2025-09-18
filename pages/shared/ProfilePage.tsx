@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { KeyRound, CheckCircle, XCircle } from 'lucide-react';
+import { KeyRound, CheckCircle, XCircle, Trash2 } from 'lucide-react';
 
 const ProfilePage: React.FC = () => {
   const { user } = useAuth();
@@ -8,8 +8,21 @@ const ProfilePage: React.FC = () => {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [message, setMessage] = useState<{ text: string, type: 'success' | 'error' } | null>(null);
+  
   const [registrationStatus, setRegistrationStatus] = useState<{ text: string, type: 'success' | 'error' | 'info' } | null>(null);
   const [isRegistering, setIsRegistering] = useState(false);
+  const [isDeviceRegistered, setIsDeviceRegistered] = useState(false);
+
+  // Check registration status on component mount
+  useEffect(() => {
+    if (user) {
+      const registrationKey = `biometric_registered_${user.id}`;
+      if (localStorage.getItem(registrationKey) === 'true') {
+        setIsDeviceRegistered(true);
+      }
+    }
+  }, [user]);
+
 
   const handlePasswordChange = (e: React.FormEvent) => {
     e.preventDefault();
@@ -44,8 +57,6 @@ const ProfilePage: React.FC = () => {
         const challenge = new Uint8Array(32);
         window.crypto.getRandomValues(challenge);
         
-        // In a real app, the user ID should be a non-personally identifiable ArrayBuffer from the server.
-        // For this demo, we'll convert the mock user ID string to a buffer.
         const userId = new TextEncoder().encode(user.id);
 
         const credential = await navigator.credentials.create({
@@ -53,7 +64,6 @@ const ProfilePage: React.FC = () => {
                 challenge,
                 rp: {
                     name: 'ClockIn System',
-                    // The ID should be the domain of your site
                     id: window.location.hostname,
                 },
                 user: {
@@ -61,9 +71,9 @@ const ProfilePage: React.FC = () => {
                     name: user.email,
                     displayName: user.name,
                 },
-                pubKeyCredParams: [{ type: 'public-key', alg: -7 }], // ES256 algorithm
+                pubKeyCredParams: [{ type: 'public-key', alg: -7 }], // ES256
                 authenticatorSelection: {
-                    authenticatorAttachment: 'platform', // Use platform authenticator (e.g., fingerprint, Face ID)
+                    authenticatorAttachment: 'platform',
                     userVerification: 'required',
                 },
                 timeout: 60000,
@@ -71,9 +81,10 @@ const ProfilePage: React.FC = () => {
         });
 
         if (credential) {
-            // In a real application, you would send this credential object to your server
-            // to store the public key and credential ID for future authentications.
-            console.log('Registration successful:', credential);
+            // In a real app, send credential to server. Here, we'll use localStorage.
+            const registrationKey = `biometric_registered_${user.id}`;
+            localStorage.setItem(registrationKey, 'true');
+            setIsDeviceRegistered(true);
             setRegistrationStatus({ text: 'Device registered successfully!', type: 'success' });
         }
     } catch (error) {
@@ -90,6 +101,15 @@ const ProfilePage: React.FC = () => {
     } finally {
         setIsRegistering(false);
     }
+  };
+  
+  const handleRemoveRegistration = () => {
+      if (user && window.confirm('Are you sure you want to remove biometric registration for this device?')) {
+          const registrationKey = `biometric_registered_${user.id}`;
+          localStorage.removeItem(registrationKey);
+          setIsDeviceRegistered(false);
+          setRegistrationStatus({ text: 'Biometric registration removed.', type: 'info' });
+      }
   };
 
 
@@ -115,7 +135,7 @@ const ProfilePage: React.FC = () => {
         <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md">
             <h2 className="text-xl font-semibold mb-4">Biometric Registration</h2>
             <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                Register your device's fingerprint or face recognition to securely clock in and out without a password. This is a one-time setup per device.
+                Register your device's fingerprint or face recognition to securely clock in and out. This is a one-time setup per device.
             </p>
              {registrationStatus && (
                 <div className={`mb-4 flex items-center p-3 rounded-md text-sm ${
@@ -128,14 +148,31 @@ const ProfilePage: React.FC = () => {
                     {registrationStatus.text}
                 </div>
             )}
-            <button 
-                onClick={handleRegisterDevice}
-                disabled={isRegistering}
-                className="flex items-center justify-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-indigo-400"
-            >
-                <KeyRound size={18} className="mr-2" />
-                {isRegistering ? 'Registering...' : 'Register This Device'}
-            </button>
+            
+            {isDeviceRegistered ? (
+                <div className="flex items-center space-x-4">
+                    <div className="flex items-center p-3 rounded-md bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200">
+                       <CheckCircle className="w-5 h-5 mr-2" />
+                       <span className="font-medium">This device is registered.</span>
+                    </div>
+                    <button 
+                        onClick={handleRemoveRegistration}
+                        className="flex items-center justify-center px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+                    >
+                        <Trash2 size={18} className="mr-2" />
+                        Remove Registration
+                    </button>
+                </div>
+            ) : (
+                <button 
+                    onClick={handleRegisterDevice}
+                    disabled={isRegistering}
+                    className="flex items-center justify-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-indigo-400"
+                >
+                    <KeyRound size={18} className="mr-2" />
+                    {isRegistering ? 'Registering...' : 'Register This Device'}
+                </button>
+            )}
         </div>
 
         <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md">
