@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { apiRequest } from '../../contexts/AuthContext';
@@ -10,17 +9,25 @@ const AttendanceHistoryPage: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [history, setHistory] = useState<AttendanceRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchHistory = async () => {
-      if (!user) return;
+      if (!user?.id) { // Guard against missing user or user.id
+        setLoading(false);
+        return;
+      }
       setLoading(true);
+      setError(null);
       try {
-        const data = await apiRequest<AttendanceRecord[]>('/attendance/history');
+        const data = await apiRequest<AttendanceRecord[]>(`/attendance/history?user_id=${user.id}`);
         setHistory(data);
-      } catch (error) {
-        console.error("Failed to fetch attendance history", error);
-        // You could set an error state here to show in the UI
+      } catch (err: any) {
+        console.error("Failed to fetch attendance history", err);
+        const errorMessage = (err.message || '').toLowerCase().includes('user_id')
+          ? 'User ID missing. Please log in again.'
+          : 'Failed to fetch attendance history.';
+        setError(errorMessage);
       } finally {
         setLoading(false);
       }
@@ -72,6 +79,7 @@ const AttendanceHistoryPage: React.FC = () => {
         </div>
       </div>
       <div className="overflow-x-auto">
+        {error && <p className="text-red-500 text-center py-2">{error}</p>}
         <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400">
           <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
             <tr>
@@ -97,7 +105,7 @@ const AttendanceHistoryPage: React.FC = () => {
               ))
             ) : (
                 <tr>
-                    <td colSpan={4} className="text-center py-4">No records found.</td>
+                    <td colSpan={4} className="text-center py-4">{error ? 'Could not load data' : 'No records found.'}</td>
                 </tr>
             )}
           </tbody>

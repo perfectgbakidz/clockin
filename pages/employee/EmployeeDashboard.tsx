@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { Clock, CheckCircle, LogIn, LogOut, MapPin, XCircle, Info } from 'lucide-react';
@@ -48,19 +47,22 @@ const EmployeeDashboard: React.FC = () => {
   // Fetch today's attendance record and location
   useEffect(() => {
     const fetchTodaysAttendance = async () => {
-      if (!user) return;
+      if (!user?.id) return; // Guard against missing user or user.id
       try {
         const todayStr = new Date().toISOString().split('T')[0];
-        const records = await apiRequest<AttendanceRecord[]>(`/attendance/history`);
+        const records = await apiRequest<AttendanceRecord[]>(`/attendance/history?user_id=${user.id}`);
         const todayRecord = records.find(r => r.date === todayStr);
 
         if (todayRecord) {
             if (todayRecord.clockIn) setClockInTime(new Date(`${todayRecord.date}T${todayRecord.clockIn}`));
             if (todayRecord.clockOut) setClockOutTime(new Date(`${todayRecord.date}T${todayRecord.clockOut}`));
         }
-      } catch (error) {
-          console.error("Failed to fetch today's attendance", error);
-          setStatus({ message: 'Could not fetch today\'s attendance status.', type: 'error' });
+      } catch (err: any) {
+          console.error("Failed to fetch today's attendance", err);
+          const errorMessage = (err.message || '').toLowerCase().includes('user_id')
+            ? 'User ID missing. Please log in again.'
+            : "Could not fetch today's attendance status.";
+          setStatus({ message: errorMessage, type: 'error' });
       }
     };
     
@@ -95,8 +97,8 @@ const EmployeeDashboard: React.FC = () => {
       setStatus({ message: 'Error: Location not available. Cannot clock in/out.', type: 'error' });
       return;
     }
-     if (!user) {
-      setStatus({ message: 'Error: User not found.', type: 'error' });
+     if (!user?.id) { // Guard against missing user or user.id
+      setStatus({ message: 'Error: User not found. Please log in again.', type: 'error' });
       return;
     }
 
@@ -136,7 +138,10 @@ const EmployeeDashboard: React.FC = () => {
             setStatus({ message: response.message, type: 'success' });
 
         } catch (apiError: any) {
-            setStatus({ message: `Clock-in/out failed: ${apiError.message}`, type: 'error' });
+            const errorMessage = (apiError.message || '').toLowerCase().includes('user_id')
+              ? 'User ID missing. Please log in again.'
+              : `Clock-in/out failed: ${apiError.message}`;
+            setStatus({ message: errorMessage, type: 'error' });
         }
       } else {
         setStatus({ message: event.data.error || 'Verification failed. Please try again.', type: 'error' });
