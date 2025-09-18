@@ -1,6 +1,39 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { Clock, CheckCircle, LogIn, LogOut, MapPin, XCircle, Info } from 'lucide-react';
+import { apiRequest } from '../../contexts/AuthContext';
+import { AttendanceRecord } from '../../types';
+
+// Helper to convert ArrayBuffer to Base64URL string
+const arrayBufferToBase64Url = (buffer: ArrayBuffer): string => {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.byteLength; i++) {
+        binary += String.fromCharCode(bytes[i]);
+    }
+    return window.btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+};
+
+// Helper to prepare WebAuthn credential for JSON serialization
+const prepareCredentialForJson = (credential: PublicKeyCredential) => {
+    const { id, rawId, type, response } = credential;
+    if (response instanceof AuthenticatorAssertionResponse) {
+        return {
+            id,
+            rawId: arrayBufferToBase64Url(rawId),
+            type,
+            response: {
+                clientDataJSON: arrayBufferToBase64Url(response.clientDataJSON),
+                authenticatorData: arrayBufferToBase64Url(response.authenticatorData),
+                signature: arrayBufferToBase64Url(response.signature),
+                userHandle: response.userHandle ? arrayBufferToBase64Url(response.userHandle) : null,
+            },
+        };
+    }
+    return null;
+};
+
 
 const EmployeeDashboard: React.FC = () => {
   const { user } = useAuth();
@@ -12,19 +45,44 @@ const EmployeeDashboard: React.FC = () => {
   const [verifyingAction, setVerifyingAction] = useState<'clockIn' | 'clockOut' | null>(null);
   const isVerifyingRef = useRef(false);
   
-  // Mock fetching today's attendance
+  // Fetch today's attendance record and location
   useEffect(() => {
-    // In a real app, this would be an API call
-    const today = new Date().toISOString().split('T')[0];
-    if (today) {
-        // Mocking a pre-existing clock-in for today
-        const existingClockIn = new Date();
-        existingClockIn.setHours(8, 55, 0);
-        setClockInTime(existingClockIn);
-    }
+    const fetchTodaysAttendance = async () => {
+      if (!user) return;
+      try {
+        const todayStr = new Date().toISOString().split('T')[0];
+        const records = await apiRequest<AttendanceRecord[]>(`/attendance/history`);
+        const todayRecord = records.find(r => r.date === todayStr);
+
+        if (todayRecord) {
+            if (todayRecord.clockIn) setClockInTime(new Date(`${todayRecord.date}T${todayRecord.clockIn}`));
+            if (todayRecord.clockOut) setClockOutTime(new Date(`${todayRecord.date}T${todayRecord.clockOut}`));
+        }
+      } catch (error) {
+          console.error("Failed to fetch today's attendance", error);
+          setStatus({ message: 'Could not fetch today\'s attendance status.', type: 'error' });
+      }
+    };
     
-    // Mock Geolocation
-    setLocation({ lat: 34.0522, lng: -118.2437 });
+    fetchTodaysAttendance();
+
+    if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                setLocation({
+                    lat: position.coords.latitude,
+                    lng: position.coords.longitude,
+                });
+            },
+            (error) => {
+                console.error("Error getting location", error);
+                setStatus({ message: 'Could not get location. Please enable location services in your browser.', type: 'error' });
+                setLocation(null);
+            }
+        );
+    } else {
+        setStatus({ message: 'Geolocation is not supported by this browser.', type: 'error' });
+    }
   }, [user]);
 
   useEffect(() => {
@@ -34,7 +92,7 @@ const EmployeeDashboard: React.FC = () => {
 
   const handleVerification = (action: 'clockIn' | 'clockOut') => {
     if (!location) {
-      setStatus({ message: 'Error: Location not available.', type: 'error' });
+      setStatus({ message: 'Error: Location not available. Cannot clock in/out.', type: 'error' });
       return;
     }
      if (!user) {
@@ -48,28 +106,42 @@ const EmployeeDashboard: React.FC = () => {
 
     const authPopup = window.open(`/#/auth-popup?userId=${user.id}`, 'auth-popup', 'width=400,height=400,popup=true');
 
-    const handleMessage = (event: MessageEvent) => {
+    const handleMessage = async (event: MessageEvent) => {
       if (event.origin !== window.location.origin || event.data?.type !== 'webauthn-result') {
         return;
       }
       
-      isVerifyingRef.current = false;
       window.removeEventListener('message', handleMessage);
+      
+      if (event.data.success && event.data.credential) {
+         try {
+            const jsonCredential = prepareCredentialForJson(event.data.credential);
+            const endpoint = action === 'clockIn' ? '/attendance/clock-in' : '/attendance/clock-out';
+            
+            const response = await apiRequest<{ message: string, clockInTime?: string, clockOutTime?: string }>(endpoint, {
+                method: 'POST',
+                body: { 
+                    webAuthnResponse: jsonCredential,
+                    location: location
+                }
+            });
 
-      if (event.data.success) {
-        const now = new Date();
-        if (action === 'clockIn') {
-          setClockInTime(now);
-          setClockOutTime(null);
-          setStatus({ message: `Successfully clocked in at ${now.toLocaleTimeString()}`, type: 'success' });
-        } else {
-          setClockOutTime(now);
-          setStatus({ message: `Successfully clocked out at ${now.toLocaleTimeString()}`, type: 'success' });
+            const now = new Date();
+            if (action === 'clockIn') {
+                setClockInTime(now);
+                setClockOutTime(null);
+            } else {
+                setClockOutTime(now);
+            }
+            setStatus({ message: response.message, type: 'success' });
+
+        } catch (apiError: any) {
+            setStatus({ message: `Clock-in/out failed: ${apiError.message}`, type: 'error' });
         }
       } else {
         setStatus({ message: event.data.error || 'Verification failed. Please try again.', type: 'error' });
       }
-
+      isVerifyingRef.current = false;
       setVerifyingAction(null);
       authPopup?.close();
     };
@@ -150,12 +222,12 @@ const EmployeeDashboard: React.FC = () => {
              <div>
                 <p>Latitude: {location.lat.toFixed(4)}</p>
                 <p>Longitude: {location.lng.toFixed(4)}</p>
-                <div className="mt-2 h-24 bg-gray-200 dark:bg-gray-700 rounded-md flex items-center justify-center">
-                    <p className="text-gray-500">Map Preview</p>
+                <div className="mt-2 h-24 bg-gray-200 dark:bg-gray-700 rounded-md flex items-center justify-center text-gray-500">
+                    <p>Location Acquired</p>
                 </div>
              </div>
            ) : (
-             <p>Fetching location...</p>
+             <p>Fetching location... Please grant permission if prompted.</p>
            )}
         </div>
       </div>

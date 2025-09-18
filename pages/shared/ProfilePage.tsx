@@ -1,6 +1,35 @@
+
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import { apiRequest } from '../../contexts/AuthContext';
 import { KeyRound, CheckCircle, XCircle, Trash2 } from 'lucide-react';
+
+// Helper to convert ArrayBuffer to Base64URL string
+const arrayBufferToBase64Url = (buffer: ArrayBuffer): string => {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.byteLength; i++) {
+        binary += String.fromCharCode(bytes[i]);
+    }
+    return window.btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+};
+
+// Helper to prepare WebAuthn credential for JSON serialization
+const prepareCredentialForJson = (credential: PublicKeyCredential) => {
+    const { id, rawId, type, response } = credential;
+    if (response instanceof AuthenticatorAttestationResponse) {
+        return {
+            id,
+            rawId: arrayBufferToBase64Url(rawId),
+            type,
+            response: {
+                clientDataJSON: arrayBufferToBase64Url(response.clientDataJSON),
+                attestationObject: arrayBufferToBase64Url(response.attestationObject),
+            },
+        };
+    }
+    return null;
+};
 
 const ProfilePage: React.FC = () => {
   const { user } = useAuth();
@@ -13,18 +42,23 @@ const ProfilePage: React.FC = () => {
   const [isRegistering, setIsRegistering] = useState(false);
   const [isDeviceRegistered, setIsDeviceRegistered] = useState(false);
 
-  // Check registration status on component mount
   useEffect(() => {
+    const checkRegistrationStatus = async () => {
+        try {
+            // This endpoint should check if any credentials exist for the current user
+            const { isRegistered } = await apiRequest<{ isRegistered: boolean }>('/webauthn/registration-status');
+            setIsDeviceRegistered(isRegistered);
+        } catch (error) {
+            console.error('Failed to fetch registration status', error);
+        }
+    };
     if (user) {
-      const registrationKey = `biometric_registered_${user.id}`;
-      if (localStorage.getItem(registrationKey) === 'true') {
-        setIsDeviceRegistered(true);
-      }
+        checkRegistrationStatus();
     }
   }, [user]);
 
 
-  const handlePasswordChange = (e: React.FormEvent) => {
+  const handlePasswordChange = async (e: React.FormEvent) => {
     e.preventDefault();
     setMessage(null);
     if(newPassword !== confirmPassword) {
@@ -35,13 +69,18 @@ const ProfilePage: React.FC = () => {
         setMessage({ text: 'Password must be at least 6 characters.', type: 'error' });
         return;
     }
-    // Mock API call
-    setTimeout(() => {
+    try {
+        await apiRequest('/auth/change-password', {
+            method: 'POST',
+            body: { oldPassword, newPassword }
+        });
         setMessage({ text: 'Password changed successfully!', type: 'success' });
         setOldPassword('');
         setNewPassword('');
         setConfirmPassword('');
-    }, 1000);
+    } catch (error: any) {
+        setMessage({ text: `Error: ${error.message}`, type: 'error' });
+    }
   };
   
   const handleRegisterDevice = async () => {
@@ -54,43 +93,30 @@ const ProfilePage: React.FC = () => {
             throw new Error('WebAuthn is not supported on this browser.');
         }
 
-        const challenge = new Uint8Array(32);
-        window.crypto.getRandomValues(challenge);
-        
-        const userId = new TextEncoder().encode(user.id);
+        // 1. Get options from server
+        const creationOptions = await apiRequest<CredentialCreationOptions>('/webauthn/register/begin', { method: 'POST' }); // Use POST for CSRF protection
 
-        const credential = await navigator.credentials.create({
-            publicKey: {
-                challenge,
-                rp: {
-                    name: 'Pardee Foods',
-                    id: window.location.hostname,
-                },
-                user: {
-                    id: userId,
-                    name: user.email,
-                    displayName: user.name,
-                },
-                pubKeyCredParams: [{ type: 'public-key', alg: -7 }], // ES256
-                authenticatorSelection: {
-                    authenticatorAttachment: 'platform',
-                    userVerification: 'required',
-                },
-                timeout: 60000,
-            },
-        });
+        // Decode challenge and user.id from base64url to ArrayBuffer
+        creationOptions.publicKey.challenge = Uint8Array.from(atob(String(creationOptions.publicKey.challenge).replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+        creationOptions.publicKey.user.id = Uint8Array.from(atob(String(creationOptions.publicKey.user.id).replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+
+        // 2. Create credential
+        const credential = await navigator.credentials.create(creationOptions);
 
         if (credential instanceof PublicKeyCredential) {
-            // In a real app, send credential to server. Here, we'll use localStorage.
-            const registrationKey = `biometric_registered_${user.id}`;
-            const credentialIdKey = `biometric_credential_id_${user.id}`;
-            
-            // The `credential.id` is a Base64URL encoded string, perfect for storage.
-            localStorage.setItem(credentialIdKey, credential.id);
-            localStorage.setItem(registrationKey, 'true');
+            // 3. Send credential to server to finish registration
+            const jsonCredential = prepareCredentialForJson(credential);
+            const result = await apiRequest<{ verified: boolean }>('/webauthn/register/finish', {
+                method: 'POST',
+                body: jsonCredential
+            });
 
-            setIsDeviceRegistered(true);
-            setRegistrationStatus({ text: 'Device registered successfully!', type: 'success' });
+            if(result.verified) {
+                setIsDeviceRegistered(true);
+                setRegistrationStatus({ text: 'Device registered successfully!', type: 'success' });
+            } else {
+                 throw new Error('Server verification failed.');
+            }
         } else {
              throw new Error('Failed to create a valid public key credential.');
         }
@@ -109,18 +135,6 @@ const ProfilePage: React.FC = () => {
         setIsRegistering(false);
     }
   };
-  
-  const handleRemoveRegistration = () => {
-      if (user && window.confirm('Are you sure you want to remove biometric registration for this device?')) {
-          const registrationKey = `biometric_registered_${user.id}`;
-          const credentialIdKey = `biometric_credential_id_${user.id}`;
-          localStorage.removeItem(registrationKey);
-          localStorage.removeItem(credentialIdKey);
-          setIsDeviceRegistered(false);
-          setRegistrationStatus({ text: 'Biometric registration removed.', type: 'info' });
-      }
-  };
-
 
   if (!user) {
     return <div>Loading profile...</div>;
@@ -144,7 +158,7 @@ const ProfilePage: React.FC = () => {
         <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md">
             <h2 className="text-xl font-semibold mb-4">Biometric Registration</h2>
             <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                Register your device's fingerprint or face recognition to securely clock in and out. This is a one-time setup per device.
+                Register your device's fingerprint or face recognition to securely clock in and out. This is a one-time setup per device. You can register multiple devices.
             </p>
              {registrationStatus && (
                 <div className={`mb-4 flex items-center p-3 rounded-md text-sm ${
@@ -158,30 +172,20 @@ const ProfilePage: React.FC = () => {
                 </div>
             )}
             
-            {isDeviceRegistered ? (
-                <div className="flex items-center space-x-4">
-                    <div className="flex items-center p-3 rounded-md bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200">
-                       <CheckCircle className="w-5 h-5 mr-2" />
-                       <span className="font-medium">This device is registered.</span>
-                    </div>
-                    <button 
-                        onClick={handleRemoveRegistration}
-                        className="flex items-center justify-center px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
-                    >
-                        <Trash2 size={18} className="mr-2" />
-                        Remove Registration
-                    </button>
-                </div>
-            ) : (
-                <button 
-                    onClick={handleRegisterDevice}
-                    disabled={isRegistering}
-                    className="flex items-center justify-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-indigo-400"
-                >
-                    <KeyRound size={18} className="mr-2" />
-                    {isRegistering ? 'Registering...' : 'Register This Device'}
-                </button>
+            {isDeviceRegistered && (
+                 <div className="flex items-center p-3 rounded-md bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 mb-4">
+                    <CheckCircle className="w-5 h-5 mr-2" />
+                    <span className="font-medium">You have at least one biometric device registered.</span>
+                 </div>
             )}
+            <button 
+                onClick={handleRegisterDevice}
+                disabled={isRegistering}
+                className="flex items-center justify-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-indigo-400"
+            >
+                <KeyRound size={18} className="mr-2" />
+                {isRegistering ? 'Registering...' : 'Register a New Device'}
+            </button>
         </div>
 
         <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md">

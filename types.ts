@@ -22,4 +22,5 @@ export interface AttendanceRecord {
   clockIn: string | null;
   clockOut: string | null;
   totalHours: number | null;
+  isLate?: boolean;
 }

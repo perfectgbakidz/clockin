@@ -1,14 +1,30 @@
-
-import React, { useState, useMemo } from 'react';
-import { MOCK_USERS } from '../../data/mockData';
+import React, { useState, useMemo, useEffect } from 'react';
+import { apiRequest } from '../../contexts/AuthContext';
 import { User, Role } from '../../types';
 import { Edit, Trash2, PlusCircle, Search } from 'lucide-react';
 
 const EmployeeManagementPage: React.FC = () => {
-  const [users, setUsers] = useState<User[]>(MOCK_USERS);
+  const [users, setUsers] = useState<User[]>([]);
+  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
+
+  const fetchUsers = async () => {
+    setLoading(true);
+    try {
+        const data = await apiRequest<User[]>('/admin/employees');
+        setUsers(data);
+    } catch (error) {
+        console.error("Failed to fetch users", error);
+    } finally {
+        setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchUsers();
+  }, []);
 
   const filteredUsers = useMemo(() =>
     users.filter(user =>
@@ -27,19 +43,36 @@ const EmployeeManagementPage: React.FC = () => {
     setIsModalOpen(true);
   };
 
-  const handleDeleteUser = (userId: string) => {
-    if(window.confirm('Are you sure you want to deactivate this employee?')) {
-        setUsers(users.map(u => u.id === userId ? {...u, status: 'Inactive'} : u));
+  const handleDeleteUser = async (userId: string) => {
+    if(window.confirm('Are you sure you want to deactivate this employee? This is a soft delete.')) {
+        try {
+            await apiRequest(`/admin/employees/${userId}`, { method: 'DELETE' });
+            // Refresh user list to show updated status
+            fetchUsers();
+        } catch (error) {
+            console.error("Failed to deactivate user", error);
+            alert('Failed to deactivate user.');
+        }
     }
   };
 
-  const handleSaveUser = (user: User) => {
-    if (editingUser) {
-        setUsers(users.map(u => u.id === user.id ? user : u));
-    } else {
-        setUsers([...users, { ...user, id: String(users.length + 1) }]);
+  const handleSaveUser = async (user: User) => {
+    try {
+        if (editingUser) {
+            // Fix: Pass user object directly to the body
+            await apiRequest(`/admin/employees/${user.id}`, { method: 'PUT', body: user });
+        } else {
+            // Backend should assign ID
+            const { id, ...newUser } = user;
+            // Fix: Pass newUser object directly to the body
+            await apiRequest('/admin/employees', { method: 'POST', body: newUser });
+        }
+        setIsModalOpen(false);
+        fetchUsers(); // Refresh list after save
+    } catch(error) {
+        console.error("Failed to save user", error);
+        alert('Failed to save user.');
     }
-    setIsModalOpen(false);
   };
 
   return (
@@ -77,7 +110,9 @@ const EmployeeManagementPage: React.FC = () => {
             </tr>
           </thead>
           <tbody>
-            {filteredUsers.map((user) => (
+            {loading ? (
+                <tr><td colSpan={5} className="text-center py-4">Loading employees...</td></tr>
+            ) : filteredUsers.map((user) => (
               <tr key={user.id} className="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
                 <td className="px-6 py-4 font-medium text-gray-900 dark:text-white">{user.name} ({user.email})</td>
                 <td className="px-6 py-4">{user.department}</td>
@@ -137,6 +172,7 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ user, onSave, onClose }) 
                         <option value={Role.ADMIN}>Admin</option>
                         <option value={Role.HR}>HR</option>
                     </select>
+                    {!user && <input type="password" name="password" onChange={handleChange} placeholder="Password" className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600" required />}
                     <div className="flex justify-end space-x-2">
                         <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-300 dark:bg-gray-600 rounded">Cancel</button>
                         <button type="submit" className="px-4 py-2 bg-indigo-600 text-white rounded">Save</button>

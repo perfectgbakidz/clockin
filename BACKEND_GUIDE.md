@@ -1,225 +1,121 @@
-# Pardee Foods Attendance System - Backend Guide
+# Backend Database Schema Guide
 
-This document outlines the requirements for the backend server that will power the Pardee Foods attendance system frontend.
+This document outlines the recommended database schema for the Pardee Foods Employee Attendance System. The schema is designed to support user management, attendance tracking, and secure biometric authentication using WebAuthn.
 
-## 1. Tech Stack
+## Table of Contents
 
--   **Framework**: Flask
--   **Database**: SQLite3
--   **Biometric Authentication Library**: A Python WebAuthn library is highly recommended (e.g., `webauthn`).
-
-## 2. Database Schema
-
-Here is the recommended schema using SQLite3.
-
-### `users` table
-
-Stores user information and credentials.
-
-| Column          | Type          | Notes                                  |
-| --------------- | ------------- | -------------------------------------- |
-| `id`            | INTEGER       | PRIMARY KEY, AUTOINCREMENT           |
-| `name`          | TEXT          | NOT NULL                               |
-| `email`         | TEXT          | UNIQUE, NOT NULL                       |
-| `password_hash` | TEXT          | NOT NULL (store hashed passwords only) |
-| `role`          | TEXT          | NOT NULL ('employee', 'admin', 'hr')   |
-| `department`    | TEXT          |                                        |
-| `status`        | TEXT          | 'Active' or 'Inactive'                 |
-| `created_at`    | DATETIME      | DEFAULT CURRENT_TIMESTAMP              |
-
-### `attendance_records` table
-
-Stores clock-in and clock-out events for each user.
-
-| Column        | Type     | Notes                                            |
-| ------------- | -------- | ------------------------------------------------ |
-| `id`          | INTEGER  | PRIMARY KEY, AUTOINCREMENT                     |
-| `user_id`     | INTEGER  | FOREIGN KEY to `users.id`                        |
-| `date`        | DATE     | NOT NULL                                         |
-| `clock_in`    | DATETIME | NULLABLE                                         |
-| `clock_out`   | DATETIME | NULLABLE                                         |
-
-### `webauthn_credentials` table
-
-Stores biometric credential data for passwordless authentication.
-
-| Column            | Type    | Notes                                                                 |
-| ----------------- | ------- | --------------------------------------------------------------------- |
-| `id`              | INTEGER | PRIMARY KEY, AUTOINCREMENT                                          |
-| `user_id`         | INTEGER | FOREIGN KEY to `users.id`                                             |
-| `credential_id`   | BLOB    | UNIQUE, NOT NULL. The raw ID of the credential.                       |
-| `public_key`      | BLOB    | NOT NULL. The public key used for signature verification.             |
-| `sign_count`      | INTEGER | NOT NULL. The signature counter to prevent replay attacks.            |
-| `transports`      | TEXT    | JSON list of transports (e.g., `["internal", "usb"]`). Optional.      |
+1.  [Users Table](#1-users-table)
+2.  [Attendance Records Table](#2-attendance-records-table)
+3.  [WebAuthn Credentials Table](#3-webauthn-credentials-table)
+4.  [Relationships Diagram](#4-relationships-diagram)
 
 ---
 
-## 3. API Endpoints
+## 1. `users` Table
 
-All endpoints should be prefixed with `/api`.
+Stores information about all users in the system, including employees, HR, and administrators.
 
-### Authentication
+| Column Name     | Data Type                  | Constraints                             | Description                                            |
+| --------------- | -------------------------- | --------------------------------------- | ------------------------------------------------------ |
+| `id`            | `UUID`                     | `PRIMARY KEY`, `DEFAULT gen_random_uuid()` | Unique identifier for the user.                        |
+| `name`          | `VARCHAR(255)`             | `NOT NULL`                              | Full name of the user.                                 |
+| `email`         | `VARCHAR(255)`             | `NOT NULL`, `UNIQUE`                    | User's email address, used for login.                  |
+| `password_hash` | `VARCHAR(255)`             | `NOT NULL`                              | Hashed password for standard login.                    |
+| `role`          | `VARCHAR(50)`              | `NOT NULL`, `CHECK (role IN ('employee', 'admin', 'hr'))` | User's role in the system.            |
+| `department`    | `VARCHAR(255)`             | `NOT NULL`                              | Department the user belongs to.                        |
+| `status`        | `VARCHAR(50)`              | `NOT NULL`, `CHECK (status IN ('Active', 'Inactive'))`, `DEFAULT 'Active'` | User's employment status. |
+| `created_at`    | `TIMESTAMP WITH TIME ZONE` | `NOT NULL`, `DEFAULT NOW()`             | Timestamp of when the user was created.                |
+| `updated_at`    | `TIMESTAMP WITH TIME ZONE` | `NOT NULL`, `DEFAULT NOW()`             | Timestamp of the last update to the user record.       |
 
-#### `POST /auth/login`
-
--   **Description**: Authenticates a user with email and password.
--   **Request Body**: `{ "email": "admin@example.com", "password": "password123" }`
--   **Success Response (200)**: Returns a JWT token and user data.
-    ```json
-    {
-      "token": "your_jwt_token",
-      "user": {
-        "id": 2,
-        "name": "Jane Smith",
-        "email": "admin@example.com",
-        "role": "admin",
-        "department": "Management"
-      }
-    }
-    ```
--   **Error Response (401)**: `{ "error": "Invalid credentials" }`
-
-#### `POST /auth/change-password`
-
--   **Description**: Allows an authenticated user to change their password.
--   **Auth**: JWT required.
--   **Request Body**: `{ "oldPassword": "...", "newPassword": "..." }`
--   **Success Response (200)**: `{ "message": "Password updated successfully" }`
-
-### WebAuthn (Biometric Authentication)
-
-#### `GET /webauthn/register/begin`
-
--   **Description**: Generates and returns registration options (including a challenge) for the user.
--   **Auth**: JWT required.
--   **Success Response (200)**: Returns the options object compatible with `navigator.credentials.create()`.
-    ```json
-    {
-      "publicKey": {
-        "rp": { "name": "Pardee Foods", "id": "your-domain.com" },
-        "user": { "id": "encoded_user_id", "name": "user@email.com", "displayName": "User Name" },
-        "challenge": "base64url_encoded_challenge",
-        "pubKeyCredParams": [{ "type": "public-key", "alg": -7 }],
-        "authenticatorSelection": { "userVerification": "required", "authenticatorAttachment": "platform" },
-        "timeout": 60000
-      }
-    }
-    ```
-
-#### `POST /webauthn/register/finish`
-
--   **Description**: Verifies the attestation object from the browser and saves the new credential to the database.
--   **Auth**: JWT required.
--   **Request Body**: The full credential object from `navigator.credentials.create()`.
--   **Success Response (200)**: `{ "verified": true, "message": "Device registered successfully" }`
--   **Error Response (400)**: `{ "verified": false, "error": "Verification failed" }`
-
-#### `GET /webauthn/login/begin`
-
--   **Description**: Generates and returns authentication options for a given user.
--   **Auth**: No JWT required (this is part of the login flow).
--   **Query Params**: `?userId=...`
--   **Success Response (200)**: Returns options compatible with `navigator.credentials.get()`.
-    ```json
-    {
-        "publicKey": {
-            "challenge": "base64url_encoded_challenge",
-            "allowCredentials": [{
-                "type": "public-key",
-                "id": "base64url_encoded_credential_id_from_db"
-            }],
-            "userVerification": "required",
-            "timeout": 60000
-        }
-    }
-    ```
-
-#### `POST /webauthn/login/finish`
-
--   **Description**: Verifies the assertion from the browser to authenticate the clock-in/out action.
--   **Request Body**: The full credential object from `navigator.credentials.get()`.
--   **Success Response (200)**: `{ "verified": true, "message": "Verification successful" }`
--   **Error Response (400)**: `{ "verified": false, "error": "Verification failed" }`
-
-### Employee Actions
-
-#### `POST /attendance/clock-in`
-
--   **Description**: Creates a clock-in record after successful biometric verification.
--   **Auth**: JWT required.
--   **Request Body**: `{ "webAuthnResponse": { ... } }` (The response from `/webauthn/login/finish` flow).
--   **Success Response (200)**: `{ "message": "Clocked in successfully", "clockInTime": "2023-10-27T09:00:00Z" }`
-
-#### `POST /attendance/clock-out`
-
--   **Description**: Adds a clock-out time to today's attendance record after successful biometric verification.
--   **Auth**: JWT required.
--   **Request Body**: `{ "webAuthnResponse": { ... } }` (The response from `/webauthn/login/finish` flow).
--   **Success Response (200)**: `{ "message": "Clocked out successfully", "clockOutTime": "2023-10-27T17:30:00Z" }`
-
-#### `GET /attendance/history`
-
--   **Description**: Gets the attendance history for the authenticated employee.
--   **Auth**: JWT required.
--   **Success Response (200)**: An array of attendance records.
-    ```json
-    [
-      { "id": 1, "date": "2023-10-26", "clockIn": "09:05:10", "clockOut": "17:20:00", "totalHours": 8.25 },
-      ...
-    ]
-    ```
-
-### Admin / HR Actions
-
-#### `GET /admin/employees`
-
--   **Description**: Retrieves a list of all users.
--   **Auth**: JWT required (Admin role).
--   **Success Response (200)**: An array of user objects.
-
-#### `POST /admin/employees`
-
--   **Description**: Creates a new user.
--   **Auth**: JWT required (Admin role).
--   **Request Body**: `{ "name": "...", "email": "...", "password": "...", "role": "...", "department": "..." }`
--   **Success Response (201)**: The newly created user object.
-
-#### `PUT /admin/employees/:id`
-
--   **Description**: Updates an existing user's details.
--   **Auth**: JWT required (Admin role).
--   **Request Body**: `{ "name": "...", "email": "...", "role": "...", "department": "..." }`
--   **Success Response (200)**: The updated user object.
-
-#### `DELETE /admin/employees/:id`
--   **Description**: Deactivates a user (soft delete by changing `status` to 'Inactive').
--   **Auth**: JWT required (Admin role).
--   **Success Response (200)**: `{ "message": "User deactivated successfully" }`
-
-#### `GET /admin/attendance-logs`
-
--   **Description**: Gets all attendance logs for all users, with filtering.
--   **Auth**: JWT required (Admin, HR roles).
--   **Query Params**: `?search=John&date=2023-10-26`
--   **Success Response (200)**: A filtered array of attendance records, including user names.
+### Example (PostgreSQL):
+```sql
+CREATE TABLE users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(255) NOT NULL,
+    email VARCHAR(255) NOT NULL UNIQUE,
+    password_hash VARCHAR(255) NOT NULL,
+    role VARCHAR(50) NOT NULL CHECK (role IN ('employee', 'admin', 'hr')),
+    department VARCHAR(255) NOT NULL,
+    status VARCHAR(50) NOT NULL DEFAULT 'Active' CHECK (status IN ('Active', 'Inactive')),
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+```
 
 ---
 
-## 4. Initial Setup
+## 2. `attendance_records` Table
 
-1.  **Initialize a Flask project**:
-    ```bash
-    mkdir pardee-foods-backend
-    cd pardee-foods-backend
-    python -m venv venv
-    source venv/bin/activate
-    pip install Flask flask-sqlalchemy flask-cors flask-bcrypt
-    # Recommend a webauthn library
-    pip install webauthn
-    ```
+Logs each clock-in and clock-out event for every employee.
 
-2.  **Create `app.py`**: Set up the main Flask application file.
+| Column Name    | Data Type                  | Constraints                 | Description                                    |
+| -------------- | -------------------------- | --------------------------- | ---------------------------------------------- |
+| `id`           | `UUID`                     | `PRIMARY KEY`, `DEFAULT gen_random_uuid()` | Unique identifier for the attendance record.   |
+| `user_id`      | `UUID`                     | `NOT NULL`, `FOREIGN KEY (users.id)` | Links to the user who made the record.         |
+| `date`         | `DATE`                     | `NOT NULL`                  | The date of the attendance entry.              |
+| `clock_in`     | `TIMESTAMP WITH TIME ZONE` | `NOT NULL`                  | The exact time the user clocked in.            |
+| `clock_out`    | `TIMESTAMP WITH TIME ZONE` |                             | The exact time the user clocked out. (Nullable) |
+| `total_hours`  | `NUMERIC(4, 2)`            |                             | Calculated total hours worked. (Nullable)      |
 
-3.  **Database Initialization**: Create a function to initialize the SQLite database and create the tables based on the schema above.
+**Constraint:** A unique constraint should be placed on `(user_id, date)` to ensure only one attendance record per user per day.
 
-4.  **CORS**: Ensure Cross-Origin Resource Sharing (CORS) is enabled to allow requests from the frontend application's domain.
+### Example (PostgreSQL):
+```sql
+CREATE TABLE attendance_records (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    date DATE NOT NULL,
+    clock_in TIMESTAMP WITH TIME ZONE NOT NULL,
+    clock_out TIMESTAMP WITH TIME ZONE,
+    total_hours NUMERIC(4, 2),
+    UNIQUE(user_id, date)
+);
+```
+
+---
+
+## 3. `webauthn_credentials` Table
+
+Stores the public key credentials required for WebAuthn (biometric) authentication.
+
+| Column Name      | Data Type                  | Constraints                 | Description                                                  |
+| ---------------- | -------------------------- | --------------------------- | ------------------------------------------------------------ |
+| `id`             | `BYTEA`                    | `PRIMARY KEY`               | The credential ID, as a byte array.                          |
+| `user_id`        | `UUID`                     | `NOT NULL`, `FOREIGN KEY (users.id)` | Links to the user who owns this credential.                |
+| `public_key`     | `BYTEA`                    | `NOT NULL`                  | The COSE-encoded public key.                                 |
+| `counter`        | `BIGINT`                   | `NOT NULL`                  | The signature counter, used to prevent replay attacks.       |
+| `transports`     | `JSONB`                    |                             | A list of transports supported by the authenticator (e.g., "internal", "usb"). |
+| `created_at`     | `TIMESTAMP WITH TIME ZONE` | `NOT NULL`, `DEFAULT NOW()` | Timestamp of when the credential was registered.             |
+
+### Example (PostgreSQL):
+```sql
+CREATE TABLE webauthn_credentials (
+    id BYTEA PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    public_key BYTEA NOT NULL,
+    counter BIGINT NOT NULL,
+    transports JSONB,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+```
+
+---
+
+## 4. Relationships Diagram
+
+A simple representation of the relationships between the tables.
+
+```
++-------------+      +----------------------+      +------------------------+
+|    users    |      | attendance_records   |      |  webauthn_credentials  |
++-------------+      +----------------------+      +------------------------+
+| id (PK)     |---- O| user_id (FK)         |      | id (PK)                |
+| name        |      | id (PK)              |      | user_id (FK)         O----| users.id (PK)          |
+| email       |      | date                 |      | public_key             |
+| ...         |      | clock_in             |      | counter                |
++-------------+      | clock_out            |      | ...                    |
+                     | ...                  |      +------------------------+
+                     +----------------------+
+```
+- A `user` can have many `attendance_records`.
+- A `user` can have many `webauthn_credentials`.

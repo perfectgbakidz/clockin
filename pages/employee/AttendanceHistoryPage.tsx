@@ -1,19 +1,38 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { MOCK_ATTENDANCE } from '../../data/mockData';
+import { apiRequest } from '../../contexts/AuthContext';
 import { AttendanceRecord } from '../../types';
 import { Download, Search } from 'lucide-react';
 
 const AttendanceHistoryPage: React.FC = () => {
   const { user } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
+  const [history, setHistory] = useState<AttendanceRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchHistory = async () => {
+      if (!user) return;
+      setLoading(true);
+      try {
+        const data = await apiRequest<AttendanceRecord[]>('/attendance/history');
+        setHistory(data);
+      } catch (error) {
+        console.error("Failed to fetch attendance history", error);
+        // You could set an error state here to show in the UI
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchHistory();
+  }, [user]);
 
   const userHistory = useMemo(() => {
-    return MOCK_ATTENDANCE.filter(record => record.userId === user?.id)
+    return history
       .filter(record => record.date.includes(searchTerm))
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [user, searchTerm]);
+  }, [history, searchTerm]);
   
   const handleExport = () => {
     let csvContent = "data:text/csv;charset=utf-8,Date,Clock In,Clock Out,Total Hours\n";
@@ -63,15 +82,20 @@ const AttendanceHistoryPage: React.FC = () => {
             </tr>
           </thead>
           <tbody>
-            {userHistory.map((record) => (
-              <tr key={record.id} className="bg-white border-b dark:bg-gray-800 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
-                <td className="px-6 py-4 font-medium text-gray-900 whitespace-nowrap dark:text-white">{record.date}</td>
-                <td className="px-6 py-4">{record.clockIn || '--:--'}</td>
-                <td className="px-6 py-4">{record.clockOut || '--:--'}</td>
-                <td className="px-6 py-4">{record.totalHours !== null ? `${record.totalHours.toFixed(2)} hrs` : 'N/A'}</td>
-              </tr>
-            ))}
-             {userHistory.length === 0 && (
+            {loading ? (
+                 <tr>
+                    <td colSpan={4} className="text-center py-4">Loading history...</td>
+                </tr>
+            ) : userHistory.length > 0 ? (
+              userHistory.map((record) => (
+                <tr key={record.id} className="bg-white border-b dark:bg-gray-800 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
+                  <td className="px-6 py-4 font-medium text-gray-900 whitespace-nowrap dark:text-white">{record.date}</td>
+                  <td className="px-6 py-4">{record.clockIn || '--:--'}</td>
+                  <td className="px-6 py-4">{record.clockOut || '--:--'}</td>
+                  <td className="px-6 py-4">{record.totalHours !== null ? `${record.totalHours.toFixed(2)} hrs` : 'N/A'}</td>
+                </tr>
+              ))
+            ) : (
                 <tr>
                     <td colSpan={4} className="text-center py-4">No records found.</td>
                 </tr>

@@ -1,16 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Fingerprint, XCircle } from 'lucide-react';
-
-const base64UrlToArrayBuffer = (base64Url: string): ArrayBuffer => {
-    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-    const binaryString = window.atob(base64);
-    const len = binaryString.length;
-    const bytes = new Uint8Array(len);
-    for (let i = 0; i < len; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-    }
-    return bytes.buffer;
-};
+import { API_BASE_URL } from '../contexts/AuthContext';
 
 const AuthPopupPage: React.FC = () => {
   const [status, setStatus] = useState<{ message: string, type: 'info' | 'error' }>({
@@ -24,7 +14,7 @@ const AuthPopupPage: React.FC = () => {
       if (!navigator.credentials || !navigator.credentials.get) {
         const result = { success: false, error: 'Biometric verification is not supported on this browser.' };
         window.opener?.postMessage({ type: 'webauthn-result', ...result }, window.location.origin);
-        setTimeout(() => window.close(), 2000);
+        setTimeout(() => window.close(), 3000);
         return;
       }
       
@@ -37,37 +27,29 @@ const AuthPopupPage: React.FC = () => {
           throw new Error('User ID not provided for verification.');
         }
 
-        const credentialIdKey = `biometric_credential_id_${userId}`;
-        const storedCredentialId = localStorage.getItem(credentialIdKey);
-
-        if (!storedCredentialId) {
-          throw new Error('No passkey has been registered for this user on this device.');
+        // 1. Get options from server
+        const response = await fetch(`${API_BASE_URL}/webauthn/login/begin?userId=${userId}`);
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Failed to get verification challenge from server.');
         }
+        const assertionOptions = await response.json();
 
-        const credentialIdBuffer = base64UrlToArrayBuffer(storedCredentialId);
-
-        const challenge = new Uint8Array(32);
-        window.crypto.getRandomValues(challenge);
-
-        credential = await navigator.credentials.get({
-          publicKey: {
-            challenge,
-            allowCredentials: [{
-              type: 'public-key',
-              id: credentialIdBuffer,
-            }],
-            timeout: 60000,
-            userVerification: 'required', 
-          },
+        // Decode challenge and allowCredentials IDs from base64url to ArrayBuffer
+        assertionOptions.publicKey.challenge = Uint8Array.from(atob(assertionOptions.publicKey.challenge), c => c.charCodeAt(0));
+        assertionOptions.publicKey.allowCredentials.forEach((cred: any) => {
+           cred.id = Uint8Array.from(atob(cred.id), c => c.charCodeAt(0));
         });
+        
+        // 2. Get assertion from browser
+        credential = await navigator.credentials.get(assertionOptions);
 
-        if (credential) {
-          const result = { success: true };
+        if (credential instanceof PublicKeyCredential) {
+          // 3. Send credential back to main window
+          const result = { success: true, credential };
           window.opener?.postMessage({ type: 'webauthn-result', ...result }, window.location.origin);
         } else {
-            // This case is unlikely as an error is usually thrown, but we handle it.
-            const result = { success: false, error: 'Verification failed.' };
-            window.opener?.postMessage({ type: 'webauthn-result', ...result }, window.location.origin);
+            throw new Error('Verification failed: Invalid credential received.');
         }
 
       } catch (error) {

@@ -1,7 +1,66 @@
-
 import React, { createContext, useState, useContext, useEffect, ReactNode } from 'react';
-import { User, Role } from '../types';
-import { MOCK_USERS } from '../data/mockData';
+import { User } from '../types';
+
+// --- API Helper ---
+export const API_BASE_URL = 'http://127.0.0.1:5000/api';
+
+const getAuthToken = (): string | null => {
+  try {
+    return localStorage.getItem('authToken');
+  } catch (e) {
+    return null;
+  }
+};
+
+// Fix: Updated the type of `options` in `apiRequest` to correctly handle object bodies.
+export const apiRequest = async <T,>(endpoint: string, options: Omit<RequestInit, 'body'> & { body?: unknown } = {}): Promise<T> => {
+  const token = getAuthToken();
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+    ...options.headers,
+  };
+
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  // FIX: Destructure body from options to resolve type error when creating RequestInit.
+  // This avoids spreading `body: unknown` while preserving the original logic of
+  // stringifying object bodies and passing other types through.
+  const { body, ...restOfOptions } = options;
+  const config: RequestInit = {
+    ...restOfOptions,
+    headers,
+  };
+
+  if (body && typeof body === 'object') {
+    config.body = JSON.stringify(body);
+  } else if (body !== undefined) {
+    config.body = body as BodyInit;
+  }
+
+  const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
+
+  if (!response.ok) {
+    if (response.status === 401 && endpoint !== '/auth/login') {
+        console.error('Unauthorized request. Logging out.');
+        localStorage.removeItem('authToken');
+        localStorage.removeItem('authUser');
+        // Use hash-based navigation for compatibility with HashRouter
+        window.location.hash = '/login';
+    }
+    const errorData = await response.json().catch(() => ({ error: 'An unknown API error occurred' }));
+    throw new Error(errorData.error || response.statusText);
+  }
+
+  if (response.status === 204) {
+    return null as T;
+  }
+
+  return response.json() as Promise<T>;
+};
+// --- End API Helper ---
+
 
 interface AuthContextType {
   user: User | null;
@@ -33,25 +92,28 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   }, []);
 
-  const login = async (username: string, password: string): Promise<boolean> => {
+  const login = async (email: string, password: string): Promise<boolean> => {
     setLoading(true);
-    // Mock API call
-    return new Promise(resolve => {
-        setTimeout(() => {
-            const foundUser = MOCK_USERS.find(u => u.email.split('@')[0] === username); // Simple check
-            if (foundUser) {
-                const mockToken = 'JWT_TOKEN_' + Math.random().toString(36).substr(2);
-                setUser(foundUser);
-                setToken(mockToken);
-                localStorage.setItem('authToken', mockToken);
-                localStorage.setItem('authUser', JSON.stringify(foundUser));
-                resolve(true);
-            } else {
-                resolve(false);
-            }
-            setLoading(false);
-        }, 1000);
-    });
+    try {
+        const response = await apiRequest<{token: string, user: User}>('/auth/login', {
+            method: 'POST',
+            body: { email, password }
+        });
+
+        if (response.token && response.user) {
+            setUser(response.user);
+            setToken(response.token);
+            localStorage.setItem('authToken', response.token);
+            localStorage.setItem('authUser', JSON.stringify(response.user));
+            return true;
+        }
+        return false;
+    } catch (error) {
+        console.error("Login failed:", error);
+        return false;
+    } finally {
+        setLoading(false);
+    }
   };
 
   const logout = () => {

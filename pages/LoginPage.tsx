@@ -1,10 +1,11 @@
+
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { LogIn } from 'lucide-react';
 
 const LoginPage: React.FC = () => {
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -14,17 +15,17 @@ const LoginPage: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    if (!username || !password) {
+    if (!email || !password) {
       setError('Both fields are required.');
       return;
     }
     setLoading(true);
-    const success = await login(username, password);
+    const success = await login(email, password);
     setLoading(false);
     if (success) {
       navigate('/');
     } else {
-      setError('Invalid username or password.');
+      setError('Invalid credentials. Please try again.');
     }
   };
 
@@ -44,19 +45,20 @@ const LoginPage: React.FC = () => {
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
             <label
-              htmlFor="username"
+              htmlFor="email"
               className="text-sm font-medium text-gray-700 dark:text-gray-300"
             >
-              Username
+              Email
             </label>
             <input
-              id="username"
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              id="email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
               className="mt-1 block w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-              placeholder="employee, admin, or hr"
+              placeholder="your.email@example.com"
               required
+              autoComplete="email"
             />
           </div>
           <div>
@@ -72,8 +74,9 @@ const LoginPage: React.FC = () => {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="mt-1 block w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-              placeholder="any password will work"
+              placeholder="••••••••"
               required
+              autoComplete="current-password"
             />
           </div>
           {error && <p className="text-sm text-red-600">{error}</p>}

@@ -1,24 +1,51 @@
 
-import React, { useState, useMemo } from 'react';
-import { MOCK_ATTENDANCE } from '../../data/mockData';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { apiRequest } from '../../contexts/AuthContext';
+import { AttendanceRecord } from '../../types';
 import { Download, Search } from 'lucide-react';
 
+// Debounce helper
+function debounce<F extends (...args: any[]) => any>(func: F, waitFor: number) {
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    return (...args: Parameters<F>): Promise<ReturnType<F>> =>
+        new Promise(resolve => {
+            if (timeout) {
+                clearTimeout(timeout);
+            }
+            timeout = setTimeout(() => resolve(func(...args)), waitFor);
+        });
+}
+
 const AttendanceLogsPage: React.FC = () => {
+    const [logs, setLogs] = useState<AttendanceRecord[]>([]);
+    const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
     const [dateFilter, setDateFilter] = useState('');
 
-    const filteredLogs = useMemo(() => {
-        return MOCK_ATTENDANCE
-            .filter(record => 
-                record.userName.toLowerCase().includes(searchTerm.toLowerCase()) &&
-                (!dateFilter || record.date === dateFilter)
-            )
-            .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    }, [searchTerm, dateFilter]);
+    const fetchLogs = useCallback(async (search: string, date: string) => {
+        setLoading(true);
+        try {
+            const query = new URLSearchParams();
+            if (search) query.set('search', search);
+            if (date) query.set('date', date);
+            const data = await apiRequest<AttendanceRecord[]>(`/admin/attendance-logs?${query.toString()}`);
+            setLogs(data);
+        } catch (error) {
+            console.error("Failed to fetch attendance logs", error);
+        } finally {
+            setLoading(false);
+        }
+    }, []);
+    
+    const debouncedFetch = useMemo(() => debounce(fetchLogs, 300), [fetchLogs]);
+
+    useEffect(() => {
+        debouncedFetch(searchTerm, dateFilter);
+    }, [searchTerm, dateFilter, debouncedFetch]);
 
     const handleExport = () => {
         let csvContent = "data:text/csv;charset=utf-8,Employee Name,Date,Clock In,Clock Out,Total Hours\n";
-        filteredLogs.forEach(row => {
+        logs.forEach(row => {
             csvContent += `${row.userName},${row.date},${row.clockIn || ''},${row.clockOut || ''},${row.totalHours || '0'}\n`;
         });
         const encodedUri = encodeURI(csvContent);
@@ -68,16 +95,19 @@ const AttendanceLogsPage: React.FC = () => {
                         </tr>
                     </thead>
                     <tbody>
-                        {filteredLogs.map((record) => (
-                            <tr key={record.id} className="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
-                                <td className="px-6 py-4 font-medium text-gray-900 dark:text-white">{record.userName}</td>
-                                <td className="px-6 py-4">{record.date}</td>
-                                <td className="px-6 py-4">{record.clockIn || '--:--'}</td>
-                                <td className="px-6 py-4">{record.clockOut || '--:--'}</td>
-                                <td className="px-6 py-4">{record.totalHours !== null ? `${record.totalHours.toFixed(2)} hrs` : 'N/A'}</td>
-                            </tr>
-                        ))}
-                         {filteredLogs.length === 0 && (
+                        {loading ? (
+                            <tr><td colSpan={5} className="text-center py-4">Loading logs...</td></tr>
+                        ) : logs.length > 0 ? (
+                           logs.map((record) => (
+                                <tr key={record.id} className="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
+                                    <td className="px-6 py-4 font-medium text-gray-900 dark:text-white">{record.userName}</td>
+                                    <td className="px-6 py-4">{record.date}</td>
+                                    <td className="px-6 py-4">{record.clockIn || '--:--'}</td>
+                                    <td className="px-6 py-4">{record.clockOut || '--:--'}</td>
+                                    <td className="px-6 py-4">{record.totalHours !== null ? `${record.totalHours.toFixed(2)} hrs` : 'N/A'}</td>
+                                </tr>
+                            ))
+                        ) : (
                             <tr>
                                 <td colSpan={5} className="text-center py-4">No logs found.</td>
                             </tr>
