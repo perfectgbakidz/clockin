@@ -1,6 +1,6 @@
-
 import React, { useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import { KeyRound, CheckCircle, XCircle } from 'lucide-react';
 
 const ProfilePage: React.FC = () => {
   const { user } = useAuth();
@@ -8,6 +8,8 @@ const ProfilePage: React.FC = () => {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [message, setMessage] = useState<{ text: string, type: 'success' | 'error' } | null>(null);
+  const [registrationStatus, setRegistrationStatus] = useState<{ text: string, type: 'success' | 'error' | 'info' } | null>(null);
+  const [isRegistering, setIsRegistering] = useState(false);
 
   const handlePasswordChange = (e: React.FormEvent) => {
     e.preventDefault();
@@ -28,6 +30,68 @@ const ProfilePage: React.FC = () => {
         setConfirmPassword('');
     }, 1000);
   };
+  
+  const handleRegisterDevice = async () => {
+    if (!user) return;
+    setIsRegistering(true);
+    setRegistrationStatus({ text: 'Please follow the prompt from your browser to register your device...', type: 'info' });
+
+    try {
+        if (!navigator.credentials || !navigator.credentials.create) {
+            throw new Error('WebAuthn is not supported on this browser.');
+        }
+
+        const challenge = new Uint8Array(32);
+        window.crypto.getRandomValues(challenge);
+        
+        // In a real app, the user ID should be a non-personally identifiable ArrayBuffer from the server.
+        // For this demo, we'll convert the mock user ID string to a buffer.
+        const userId = new TextEncoder().encode(user.id);
+
+        const credential = await navigator.credentials.create({
+            publicKey: {
+                challenge,
+                rp: {
+                    name: 'ClockIn System',
+                    // The ID should be the domain of your site
+                    id: window.location.hostname,
+                },
+                user: {
+                    id: userId,
+                    name: user.email,
+                    displayName: user.name,
+                },
+                pubKeyCredParams: [{ type: 'public-key', alg: -7 }], // ES256 algorithm
+                authenticatorSelection: {
+                    authenticatorAttachment: 'platform', // Use platform authenticator (e.g., fingerprint, Face ID)
+                    userVerification: 'required',
+                },
+                timeout: 60000,
+            },
+        });
+
+        if (credential) {
+            // In a real application, you would send this credential object to your server
+            // to store the public key and credential ID for future authentications.
+            console.log('Registration successful:', credential);
+            setRegistrationStatus({ text: 'Device registered successfully!', type: 'success' });
+        }
+    } catch (error) {
+        let errorMessage = 'An unknown error occurred.';
+        if (error instanceof Error) {
+            if (error.name === 'NotAllowedError') {
+                errorMessage = 'Registration was cancelled.';
+            } else {
+                errorMessage = error.message;
+            }
+        }
+        console.error('Registration failed:', error);
+        setRegistrationStatus({ text: `Registration failed: ${errorMessage}`, type: 'error' });
+    } finally {
+        setIsRegistering(false);
+    }
+  };
+
 
   if (!user) {
     return <div>Loading profile...</div>;
@@ -37,7 +101,6 @@ const ProfilePage: React.FC = () => {
     <div className="max-w-4xl mx-auto space-y-6">
         <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-100">My Profile</h1>
         
-        {/* Profile Details */}
         <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md">
             <h2 className="text-xl font-semibold mb-4">Your Details</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -48,7 +111,33 @@ const ProfilePage: React.FC = () => {
             </div>
         </div>
 
-        {/* Change Password */}
+        {/* Biometric Registration */}
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md">
+            <h2 className="text-xl font-semibold mb-4">Biometric Registration</h2>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                Register your device's fingerprint or face recognition to securely clock in and out without a password. This is a one-time setup per device.
+            </p>
+             {registrationStatus && (
+                <div className={`mb-4 flex items-center p-3 rounded-md text-sm ${
+                    registrationStatus.type === 'success' ? 'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200' :
+                    registrationStatus.type === 'error' ? 'bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200' :
+                    'bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200'
+                }`}>
+                    {registrationStatus.type === 'success' && <CheckCircle className="w-5 h-5 mr-2" />}
+                    {registrationStatus.type === 'error' && <XCircle className="w-5 h-5 mr-2" />}
+                    {registrationStatus.text}
+                </div>
+            )}
+            <button 
+                onClick={handleRegisterDevice}
+                disabled={isRegistering}
+                className="flex items-center justify-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-indigo-400"
+            >
+                <KeyRound size={18} className="mr-2" />
+                {isRegistering ? 'Registering...' : 'Register This Device'}
+            </button>
+        </div>
+
         <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md">
             <h2 className="text-xl font-semibold mb-4">Change Password</h2>
             <form onSubmit={handlePasswordChange} className="space-y-4">
