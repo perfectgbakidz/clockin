@@ -2,7 +2,7 @@ import React, { createContext, useState, useContext, useEffect, ReactNode } from
 import { User } from '../types';
 
 // --- API Helper ---
-export const API_BASE_URL = 'http://127.0.0.1:5000/api';
+export const API_BASE_URL = 'https://clockin-backend-gtol.onrender.com/api';
 
 const getAuthToken = (): string | null => {
   try {

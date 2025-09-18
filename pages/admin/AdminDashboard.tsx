@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Users, UserCheck, UserX, AlertTriangle } from 'lucide-react';
 import { apiRequest } from '../../contexts/AuthContext';
-import { User, AttendanceRecord } from '../../types';
+import { User, AttendanceRecord, Role } from '../../types';
 
 const StatCard: React.FC<{
   icon: React.ElementType;
@@ -42,19 +42,18 @@ const AdminDashboard: React.FC = () => {
 
       const attendanceLogs = attendanceResponse.data; // <-- extract array
 
-      // Total active employees
-      const activeUsers = users.filter(u => u.status === 'Active');
-      const totalEmployees = activeUsers.length;
+      // Total active employees with 'employee' role
+      const activeEmployeeUsers = users.filter(u => u.status === 'Active' && u.role === Role.EMPLOYEE);
+      const totalEmployees = activeEmployeeUsers.length;
 
       // Employees present today
       const presentIds = new Set(attendanceLogs.map(log => log.userId));
       const presentToday = presentIds.size;
 
-      // Late arrivals (clockIn after 09:00:00)
+      // Late arrivals (isLate flag or clockIn after 09:00:00)
       const lateArrivals = attendanceLogs.filter(log => {
-        if (!log.clockIn) return false;
-        const timePart = log.clockIn.split('T')[1]; // HH:MM:SS
-        return timePart > '09:00:00';
+        const isLateByTime = log.clockIn && (log.clockIn.includes('T') ? log.clockIn.split('T')[1] : log.clockIn) > '09:00:00';
+        return log.isLate === true || isLateByTime;
       }).length;
 
       setStats({
